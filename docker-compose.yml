@@ -5,6 +5,10 @@
 # - Desarrollo local con recarga automática:
 #     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
+# Nombre fijo del proyecto: el volumen de datos se llama siempre communityia_backend-data,
+# aunque el repositorio se clone en otra carpeta (si no, Compose crearía un volumen vacío).
+name: communityia
+
 # Endurecimiento común: sin escalada de privilegios, sin capacidades de Linux
 # y logs rotados para no llenar el disco de la VM.
 x-hardening: &hardening
@@ -30,7 +34,8 @@ services:
       - path: .env
         required: false
     volumes:
-      # Candidatos en revisión y almacenamiento local de respaldo: sobreviven a reconstrucciones.
+      # auth.db (cuentas), app.db (lotes y revisión) y almacenamiento local de respaldo:
+      # sobreviven a reconstrucciones. Copias de seguridad: docs/Guia_Despliegue_OCI.md.
       - backend-data:/app/data
       # Credenciales de OCI en solo lectura (no hacen falta si se usan instance principals).
       # El contenedor corre como UID 1000 (opc) y las busca en /home/opc/.oci/config.

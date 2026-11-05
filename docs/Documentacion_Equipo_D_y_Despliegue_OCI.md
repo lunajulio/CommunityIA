@@ -429,7 +429,7 @@ services:
 ssh -i "clave_privada.key" opc@138.2.245.128
 
 # 2. Actualizar a la última versión
-cd ~/CommunityLab-G10-team23
+cd ~/communityia
 git fetch origin
 git checkout feature/entrega-final
 git pull origin feature/entrega-final
@@ -448,7 +448,7 @@ docker compose logs -f frontend
 ssh -i "clave_privada.key" opc@164.152.246.126
 
 # 2. Actualizar a la última versión
-cd ~/CommunityLab-G10-team23
+cd ~/communityia
 git fetch origin
 git checkout feature/entrega-final
 git pull origin feature/entrega-final

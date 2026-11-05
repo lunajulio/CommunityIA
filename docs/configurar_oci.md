@@ -17,7 +17,7 @@ Desde tu equipo:
 
 ```bash
 scp oci_api_key.pem config opc@164.152.246.126:/tmp/
-ssh opc@164.152.246.126 "bash ~/CommunityLab-G10-team23/scripts/setup_oci.sh /tmp/oci_api_key.pem /tmp/config && rm -f /tmp/oci_api_key.pem /tmp/config"
+ssh opc@164.152.246.126 "bash ~/communityia/scripts/setup_oci.sh /tmp/oci_api_key.pem /tmp/config && rm -f /tmp/oci_api_key.pem /tmp/config"
 ```
 
 El script deja los archivos en `~/.oci` con permisos `600` y ajusta la línea `key_file` a:
@@ -31,7 +31,7 @@ Docker Compose monta `/home/opc/.oci` dentro del contenedor en modo solo lectura
 ## 3. Reiniciar y verificar
 
 ```bash
-cd ~/CommunityLab-G10-team23
+cd ~/communityia
 docker compose up -d --force-recreate backend
 python3 -c "import oci; c = oci.config.from_file(); client = oci.object_storage.ObjectStorageClient(c); print('OCI Conectado! Namespace:', client.get_namespace().data)"
 curl http://localhost:8000/api/v1/storage/packages

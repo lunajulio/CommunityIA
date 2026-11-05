@@ -64,7 +64,7 @@ Comandos útiles:
 | Detener y eliminar los contenedores | `docker compose down` |
 | Reconstruir solo el frontend | `docker compose up -d --build --no-deps frontend` |
 
-> Detener o eliminar el backend (`stop`/`down`) descarta el avance de un lote en proceso: los trabajos viven en su memoria. Lo ya generado y las aprobaciones se conservan en `backend/data/activos_candidatos.json`.
+> Al detener o reiniciar el backend (`stop`/`down`), un lote que estaba en proceso se marca como fallido al arrancar de nuevo. Las interacciones ya procesadas, sus candidatos y las aprobaciones se conservan en SQLite (`backend/data/app.db`); el paquete publicado permanece en OCI.
 
 ### Alternativa: frontend en modo desarrollo (sin Docker)
 
@@ -84,6 +84,81 @@ Abre **http://localhost:3000**. El proxy apunta a `http://localhost:8000` salvo 
 | `npm run build` | Compila a `dist/` (servidor en `dist/server/entry.mjs`) |
 | `npm start` | Ejecuta la compilación; acepta `HOST`, `PORT` y `BACKEND_URL` |
 | `npm run check` | Comprobación de tipos de `.astro`, `.ts` y `.tsx` (`astro check`) |
+
+### Probar la interfaz con datos demo
+
+Para recorrer la interfaz sin configurar el backend, Gemini, OCI ni una cuenta de usuario, activa `DEMO_MODE=true`. El frontend mostrará resultados simulados y mantendrá las decisiones de revisión únicamente durante la sesión actual.
+
+Desde PowerShell, en la raíz del repositorio:
+
+```powershell
+Copy-Item .env.example .env
+(Get-Content .env) -replace '^# DEMO_MODE=.*$', 'DEMO_MODE=true' | Set-Content .env
+docker compose up -d --build frontend
+```
+
+Abre <http://localhost:3000/>. No necesitas iniciar sesión. En la cabecera selecciona **Datos de prueba** y prueba:
+
+- **Caso oficial**: muestra historias de éxito, preguntas técnicas, contenido de comunidad y activos pendientes para revisar.
+- **Lote sin oportunidades**: muestra interacciones descartadas y permite revisar el estado vacío de activos.
+
+También puedes seleccionar **Cargar JSON** o arrastrar [`examples/inputs/demo-mixed-batch.json`](../examples/inputs/demo-mixed-batch.json) a la página. El simulador reconoce historias de éxito, preguntas, alertas de soporte y mensajes breves según el texto. Explora las pestañas de formato, abre el menú **⋮**, edita un candidato y cambia su estado para comprobar el flujo HITL.
+
+En modo demo:
+
+- La etiqueta de la barra lateral indica **Modo demostración**.
+- No se realizan llamadas al backend ni se requiere autenticación.
+- **Publicar** no guarda paquetes en OCI; las vistas de historial y paquetes publicados no tienen datos persistentes.
+- Al reiniciar o cerrar la sesión del navegador se pierden las revisiones simuladas.
+
+Para regresar al modo conectado, cambia `DEMO_MODE=false` en `.env` y recrea el contenedor:
+
+```powershell
+(Get-Content .env) -replace '^DEMO_MODE=.*$', 'DEMO_MODE=false' | Set-Content .env
+docker compose up -d --build frontend
+```
+
+Para desarrollo sin Docker:
+
+```powershell
+cd frontend
+npm install
+$env:DEMO_MODE = "true"
+npm run dev
+```
+
+Abre <http://localhost:3000/> y repite el flujo desde **Datos de prueba**.
+
+### Probar el inicio de sesión local
+
+El inicio de sesión no se prueba en `DEMO_MODE=true`, porque ese modo desactiva intencionalmente la autenticación. Para probarlo, cambia a modo conectado y levanta todo el stack:
+
+```powershell
+(Get-Content .env) -replace '^DEMO_MODE=.*$', 'DEMO_MODE=false' | Set-Content .env
+docker compose up -d --build
+```
+
+Crea el primer administrador desde otra terminal:
+
+```powershell
+docker compose exec backend python -m app.auth.crear_admin --email admin@example.com --nombre "Administrador local"
+```
+
+Define la contraseña cuando el comando la solicite y sigue estos pasos:
+
+1. Abre <http://localhost:3000/login>.
+2. Inicia sesión con `admin@example.com`.
+3. Comprueba que aparecen la bandeja, el historial, el dashboard y **Administración → Equipo**.
+4. Cierra sesión y confirma que las páginas protegidas redirigen nuevamente a `/login`.
+
+Desde **Administración → Equipo** puedes crear una invitación, abrir el enlace `/registro` y crear otra cuenta. Usa los roles `lector` y `revisor` para comprobar los permisos: `lector` consulta historial y dashboard; `revisor` además carga lotes y revisa candidatos; `admin` gestiona el equipo y publica.
+
+Para regresar a la prueba demo, vuelve a definir `DEMO_MODE=true` y recrea el frontend:
+
+```powershell
+(Get-Content .env) -replace '^DEMO_MODE=.*$', 'DEMO_MODE=true' | Set-Content .env
+docker compose up -d --build frontend
+```
 
 ---
 
@@ -125,7 +200,7 @@ La ventana de detalle muestra la interacción original, el análisis de la IA (s
 
 - Los campos que no se muestran se conservan: cada cambio se guarda con `PATCH /api/v1/review/assets/{candidato_id}` enviando el `contenido` **completo**, porque el backend lo reemplaza.
 - **Copiar** lleva al portapapeles solo los campos editables.
-- **Publicar** solo se habilita cuando el contenido está aprobado y sin cambios pendientes. Por ahora la publicación es simulada.
+- **Publicar** solo se habilita cuando el contenido está aprobado y sin cambios pendientes. La acción llama al backend, que selecciona los candidatos aprobados de mayor relevancia, crea el paquete con auditoría y lo persiste en OCI Object Storage. Después de publicar, el lote y sus candidatos quedan bloqueados para edición.
 - Si cierras la ventana con cambios sin guardar, se pide confirmación.
 
 El backend redacta el copy de LinkedIn como un post (gancho, párrafos cortos, llamada a la acción y hashtags) y el resumen del Newsletter con formato de noticia (entradilla y contexto, 60–120 palabras). La sección del Newsletter la elige el modelo entre *Logros de la comunidad*, *Preguntas destacadas*, *Aprendizaje y recursos* y *Vida de la comunidad*.
@@ -237,6 +312,7 @@ El navegador nunca llama directamente a FastAPI: usa endpoints de servidor de As
 - **CSRF**: además de `SameSite=Strict`, las peticiones `POST`/`PATCH`/`PUT`/`DELETE` a `/api/*` deben venir de la misma página (`Sec-Fetch-Site` u `Origin`); si no, 403.
 - **Límite de intentos**: 20 intentos fallidos de login, registro o restablecimiento por IP cada 15 minutos (el backend limita además 5 por correo).
 - **Modo demostración (`DEMO_MODE=true`)**: sin inicio de sesión ni backend; los trabajos se simulan (`src/lib/server/simulation.ts`) y la revisión solo vive en la sesión. Solo se activa a propósito: si el backend se cae, la aplicación muestra **Sin conexión** y no inventa resultados.
+- **Persistencia y permisos**: en modo conectado, los lotes, candidatos, decisiones de revisión e historial viven en SQLite del backend; los paquetes publicados y el historial de la aplicación se consultan desde OCI. Los roles son *Solo lectura* (`lector`), *Revisión* (`revisor`) y *Administración* (`admin`); solo administración puede gestionar usuarios y publicar.
 - **Detrás de un proxy HTTPS** (Caddy, load balancer): define `COOKIE_SECURE=true` para marcar la cookie como `Secure`, y `TRUST_PROXY=true` para tomar la IP del cliente de `X-Forwarded-For` (solo si el proxy es tuyo; si no, cualquiera podría falsear su IP).
 
 ---
@@ -269,5 +345,3 @@ El archivo de entrada debe cumplir el modelo `SolicitudProcesamiento` (hasta 500
 Para probar sin preparar un archivo, usa el menú **Datos de prueba** de la cabecera. La definición formal del contrato (JSON Schema) está en [`schemas/input.json`](../schemas/input.json); sirve como referencia del formato, no como lote para cargar.
 
 ---
-
-
